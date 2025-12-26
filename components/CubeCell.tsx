@@ -1,28 +1,17 @@
-import React, { useRef, useMemo, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Mesh, Color, Vector3 } from 'three';
+import { Mesh, Vector3, Color } from 'three';
+import { Edges } from '@react-three/drei';
 import { DataPoint } from '../types';
-import { CONTENT_TYPE_COLORS, CELL_SIZE, CUBE_SPACING } from '../constants';
+import { CUBE_SPACING, BASE_SIZE, TYPE_COLORS } from '../constants';
 
-// Fix for missing R3F types in JSX by augmenting the React module
-// This handles cases where React.JSX is the namespace being checked
-declare module 'react' {
-  namespace JSX {
-    interface IntrinsicElements {
-      mesh: any;
-      boxGeometry: any;
-      meshPhysicalMaterial: any;
-    }
-  }
-}
-
-// Fallback for global JSX namespace
+// Declare intrinsic elements for TypeScript
 declare global {
   namespace JSX {
     interface IntrinsicElements {
       mesh: any;
       boxGeometry: any;
-      meshPhysicalMaterial: any;
+      meshStandardMaterial: any;
     }
   }
 }
@@ -30,103 +19,110 @@ declare global {
 interface CubeCellProps {
   data: DataPoint;
   isSelected: boolean;
-  isNeighbor: boolean;
-  isHoveredAny: boolean; // Is ANY cell currently hovered in the scene?
-  onHover: (e: React.PointerEvent, data: DataPoint | null) => void;
-  onClick: (data: DataPoint) => void;
+  onHover: (data: DataPoint | null) => void;
+  onSelect: (data: DataPoint) => void;
 }
 
-export const CubeCell: React.FC<CubeCellProps> = ({ 
-  data, 
-  isSelected, 
-  isNeighbor, 
-  isHoveredAny,
-  onHover, 
-  onClick 
+export const CubeCell: React.FC<CubeCellProps> = ({
+  data,
+  isSelected,
+  onHover,
+  onSelect
 }) => {
   const meshRef = useRef<Mesh>(null);
   const [hovered, setHovered] = useState(false);
 
-  // Calculate position based on grid coordinates and spacing
-  const position = useMemo(() => new Vector3(
-    data.coordinates[0] * CUBE_SPACING,
-    data.coordinates[1] * CUBE_SPACING,
-    data.coordinates[2] * CUBE_SPACING
-  ), [data.coordinates]);
-
-  // Base color
-  const baseColor = useMemo(() => new Color(CONTENT_TYPE_COLORS[data.content_type]), [data.content_type]);
+  // Interaction State Logic
+  const isActive = isSelected || hovered;
   
-  // Scale based on metric: avg_session_minutes
-  // Range is approx 5 to 110. Normalize roughly 0-120.
-  const scaleMetric = 0.8 + (Math.min(data.avg_session_minutes, 120) / 120) * 0.3; 
-  const targetScale = isSelected || hovered ? 1.15 : scaleMetric;
+  // Base visual targets
+  const baseColor = new Color(TYPE_COLORS[data.colorType]);
+  
+  // Emissive Glow Logic
+  let targetEmissiveIntensity = 0.0;
+  let targetScale = BASE_SIZE;
 
-  // Opacity logic
-  const getTargetOpacity = () => {
-    if (isSelected) return 1.0;
-    if (hovered) return 0.95;
-    if (isHoveredAny && !isNeighbor) return 0.1; // Dim others significantly
-    
-    // Base transparency on intensity (minutes)
-    const baseOpacity = 0.4 + (Math.min(data.avg_session_minutes, 100) / 200);
-    return baseOpacity;
-  };
+  // Only change properties if THIS cell is active. 
+  // Neighbors and others remain static (no blinking).
+  if (isActive) {
+    targetScale = BASE_SIZE * 1.1; // Pop out slightly
+    targetEmissiveIntensity = 1.0; // Strong glow on active
+  } 
 
   useFrame((state, delta) => {
     if (!meshRef.current) return;
-    
-    // Smooth scaling
-    meshRef.current.scale.lerp(new Vector3(targetScale, targetScale, targetScale), delta * 10);
-    
-    // Material prop updates (handled via ref to avoid React render overhead on material)
+
+    // 1. Smooth Scale Transition
+    const currentScale = meshRef.current.scale.x;
+    const step = (targetScale - currentScale) * delta * 12; // Fast elastic snap
+    meshRef.current.scale.setScalar(currentScale + step);
+
     const material = meshRef.current.material as any;
     
-    // Color pulsing if selected
-    if (isSelected) {
-       const time = state.clock.getElapsedTime();
-       const pulse = (Math.sin(time * 3) + 1) / 2 * 0.2; // 0 to 0.2
-       material.emissive.set(baseColor).multiplyScalar(0.6 + pulse);
-    } else if (hovered) {
-       material.emissive.set(baseColor).multiplyScalar(0.5);
-    } else {
-       // Idle emission based on metric
-       material.emissive.set(baseColor).multiplyScalar(0.1 + (data.avg_session_minutes / 200));
-    }
+    // 2. Smooth Glow (Emissive) Transition
+    const currentEmissive = material.emissiveIntensity;
+    material.emissiveIntensity += (targetEmissiveIntensity - currentEmissive) * delta * 10;
     
-    // Smooth opacity transition
-    material.opacity += (getTargetOpacity() - material.opacity) * delta * 8;
+    // Set emissive color to match the base color
+    material.emissive.set(baseColor);
+    
+    // 3. Pulse effect ONLY if selected
+    if (isSelected) {
+        const time = state.clock.getElapsedTime();
+        // A heartbeat pulse
+        const pulse = (Math.sin(time * 6) + 1) * 0.5; 
+        material.emissiveIntensity = 1.0 + (pulse * 0.5);
+    }
   });
 
   return (
     <mesh
       ref={meshRef}
-      position={position}
+      position={[
+        data.position[0] * CUBE_SPACING,
+        data.position[1] * CUBE_SPACING,
+        data.position[2] * CUBE_SPACING
+      ]}
       onClick={(e: any) => {
         e.stopPropagation();
-        onClick(data);
+        onSelect(data);
       }}
       onPointerOver={(e: any) => {
         e.stopPropagation();
         setHovered(true);
-        onHover(e, data);
+        onHover(data);
       }}
       onPointerOut={(e: any) => {
+        e.stopPropagation();
         setHovered(false);
-        onHover(e, null);
+        onHover(null);
       }}
     >
-      <boxGeometry args={[CELL_SIZE, CELL_SIZE, CELL_SIZE]} />
-      {/* Physical material for glass effect */}
-      <meshPhysicalMaterial
+      <boxGeometry args={[1, 1, 1]} />
+      
+      {/* 
+        Solid Matte Material 
+        roughness: High (0.6) for matte look
+        metalness: Low (0.1) for plastic/ceramic feel
+        emissive: Enables the glow effect
+      */}
+      <meshStandardMaterial
         color={baseColor}
-        transparent
-        roughness={0.1}
-        metalness={0.3}
-        transmission={0.5} // Glass-like
-        thickness={1.5}
-        clearcoat={1}
-        clearcoatRoughness={0.1}
+        roughness={0.6}
+        metalness={0.1}
+        emissive={baseColor}
+        emissiveIntensity={0}
+      />
+
+      {/* 
+        Edges for the "Grid" look.
+        White when active, dark grey otherwise.
+      */}
+      <Edges
+        scale={1.0}
+        threshold={15}
+        color={isActive ? "white" : "#1a1a1a"}
+        renderOrder={1000}
       />
     </mesh>
   );

@@ -1,147 +1,69 @@
-import { DataPoint, AxisConfig, ContentType } from '../types';
-import { DAY_TYPES, DEVICES, CONTENT_TYPES } from '../constants';
+import { DataPoint, ContentType, UserActivity } from '../types';
+import { X_AXIS_VALUES, Y_AXIS_VALUES, Z_AXIS_VALUES } from '../constants';
 
-const RAW_DATA = `user_id,hour,day_type,device,content_type,session_minutes,recommended,completed,is_binge
-U01,8,weekday,mobile,music,7,no,0,0
-U02,9,weekday,mobile,news,6,no,0,0
-U03,10,weekday,desktop,search,9,no,1,0
-U04,11,weekday,mobile,music,12,yes,1,0
-U05,12,weekday,desktop,search,15,no,1,0
-U06,13,weekday,mobile,podcast,18,yes,1,0
-U07,14,weekday,mobile,music,10,no,0,0
-U08,15,weekday,desktop,video,22,yes,1,0
-U09,16,weekday,mobile,news,8,no,0,0
-U10,17,weekday,desktop,video,28,yes,1,0
-U11,18,weekday,mobile,video,25,yes,1,0
-U12,19,weekday,desktop,video,40,yes,1,1
-U13,20,weekday,desktop,video,55,yes,1,1
-U14,21,weekday,mobile,video,34,yes,0,0
-U15,22,weekday,desktop,video,70,yes,1,1
-U16,23,weekday,mobile,video,45,yes,1,1
-U17,0,weekday,mobile,video,30,no,0,0
-U18,1,weekday,desktop,video,60,yes,1,1
-U19,2,weekday,mobile,music,14,no,0,0
-U20,3,weekday,mobile,music,9,no,0,0
-U21,9,weekend,mobile,music,15,yes,1,0
-U22,11,weekend,mobile,video,32,yes,1,0
-U23,13,weekend,desktop,video,48,yes,1,1
-U24,15,weekend,mobile,podcast,25,yes,1,0
-U25,17,weekend,desktop,video,52,yes,1,1
-U26,18,weekend,mobile,video,38,yes,1,0
-U27,19,weekend,desktop,video,65,yes,1,1
-U28,20,weekend,desktop,video,80,yes,1,1
-U29,21,weekend,desktop,video,95,yes,1,1
-U30,22,weekend,mobile,video,50,yes,0,1
-U31,23,weekend,desktop,video,110,yes,1,1
-U32,0,weekend,desktop,video,90,yes,1,1
-U33,1,weekend,mobile,music,20,no,0,0
-U34,2,weekend,mobile,music,18,no,0,0
-U35,3,weekend,mobile,music,12,no,0,0
-U36,10,weekend,mobile,news,14,yes,1,0
-U37,12,weekend,desktop,search,18,no,1,0
-U38,14,weekend,mobile,music,16,no,0,0
-U39,16,weekend,desktop,video,35,yes,1,0
-U40,18,weekend,desktop,video,60,yes,1,1`;
+const CIS_COUNTRIES = ['Russia', 'Kazakhstan', 'Belarus', 'Uzbekistan', 'Kyrgyzstan', 'Armenia'];
 
-interface RawRow {
-  user_id: string;
-  hour: number;
-  day_type: string;
-  device: string;
-  content_type: ContentType;
-  session_minutes: number;
-  recommended: boolean;
-  completed: boolean;
-  is_binge: boolean;
-}
-
-const parseCSV = (csv: string): RawRow[] => {
-  const lines = csv.trim().split('\n');
-  const headers = lines[0].split(',');
-  const rows = lines.slice(1).map(line => {
-    const values = line.split(',');
-    return {
-      user_id: values[0],
-      hour: parseInt(values[1]),
-      day_type: values[2],
-      device: values[3],
-      content_type: values[4] as ContentType,
-      session_minutes: parseInt(values[5]),
-      recommended: values[6] === 'yes',
-      completed: parseInt(values[7]) === 1,
-      is_binge: parseInt(values[8]) === 1
-    };
-  });
-  return rows;
-};
-
-export const generateOlapData = (): { data: DataPoint[], axes: AxisConfig } => {
-  const rawData = parseCSV(RAW_DATA);
+export const generateCubeData = (): DataPoint[] => {
   const data: DataPoint[] = [];
-  let idCounter = 0;
 
-  // Aggregate Data into Cube Cells
-  // X: Day Type, Y: Device, Z: Content Type
-  DAY_TYPES.forEach((dayType, xIndex) => {
-    DEVICES.forEach((device, yIndex) => {
-      CONTENT_TYPES.forEach((contentType, zIndex) => {
+  // Generate 3x3x3 = 27 cells
+  X_AXIS_VALUES.forEach((xVal, xIdx) => {
+    Y_AXIS_VALUES.forEach((yVal, yIdx) => {
+      Z_AXIS_VALUES.forEach((zVal, zIdx) => {
         
-        const cellRows = rawData.filter(r => 
-          r.day_type === dayType && 
-          r.device === device && 
-          r.content_type === contentType
-        );
+        // Map grid index 0,1,2 to coordinates -1,0,1
+        const xPos = xIdx - 1;
+        const yPos = yIdx - 1;
+        const zPos = zIdx - 1;
 
-        if (cellRows.length > 0) {
-          idCounter++;
-          
-          const totalMinutes = cellRows.reduce((acc, r) => acc + r.session_minutes, 0);
-          const avgMinutes = totalMinutes / cellRows.length;
-          
-          const bingeCount = cellRows.filter(r => r.is_binge).length;
-          const completionCount = cellRows.filter(r => r.completed).length;
-          const recCount = cellRows.filter(r => r.recommended).length;
+        // Randomize metrics
+        // Center of cube (0,0,0) tends to have higher stats for visualization interest
+        const distFromCenter = Math.sqrt(xPos*xPos + yPos*yPos + zPos*zPos);
+        const centerBias = 1.5 - (distFromCenter * 0.3);
 
-          // Extract row details for drill-down
-          const contributingUsers = cellRows.map(r => ({
-            id: r.user_id,
-            minutes: r.session_minutes,
-            binge: r.is_binge,
-            hour: r.hour,
-            recommended: r.recommended,
-            completed: r.completed
-          })).sort((a, b) => b.minutes - a.minutes);
+        const avgSession = Math.max(2, Math.random() * 45 * centerBias);
+        
+        // LIMIT: Max 40 users per segment
+        // Base range 2-30, multiplied by bias (up to 1.5x), clamped at 40
+        const rawCount = (Math.random() * 30 + 2) * centerBias;
+        const userCount = Math.floor(Math.max(2, Math.min(40, rawCount)));
+        
+        // Assign color type based on Z-axis but vary slightly for realism
+        // If Z is Music, mostly Music, but sometimes Podcast
+        let type: ContentType = zVal;
+        if (zVal === 'Music' && Math.random() > 0.8) type = 'Podcast';
+        if (zVal === 'News' && Math.random() > 0.8) type = 'Search';
 
-          data.push({
-            id: `cell-${idCounter}`,
-            content_type: contentType,
-            day_type: dayType,
-            device: device,
-            avg_session_minutes: avgMinutes,
-            total_session_minutes: totalMinutes,
-            user_count: cellRows.length,
-            binge_rate: bingeCount / cellRows.length,
-            completion_rate: completionCount / cellRows.length,
-            recommendation_rate: recCount / cellRows.length,
-            contributing_users: contributingUsers,
-            // Center coordinates
-            coordinates: [
-              xIndex - (DAY_TYPES.length - 1) / 2,
-              yIndex - (DEVICES.length - 1) / 2,
-              zIndex - (CONTENT_TYPES.length - 1) / 2
-            ]
-          });
-        }
+        // Pick a dominant country for this segment to make data look realistic
+        const dominantCountry = CIS_COUNTRIES[Math.floor(Math.random() * CIS_COUNTRIES.length)];
+
+        // Generate mock user data matching the userCount
+        const contributingUsers: UserActivity[] = Array.from({ length: userCount }).map((_, i) => ({
+          id: `USR-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`,
+          hour: Math.floor(Math.random() * 24),
+          minutes: Math.floor(Math.random() * 60) + 5,
+          recommended: Math.random() > 0.5,
+          completed: Math.random() > 0.4,
+          binge: Math.random() > 0.85,
+          // 70% chance to be from the dominant country, else random
+          country: Math.random() > 0.3 ? dominantCountry : CIS_COUNTRIES[Math.floor(Math.random() * CIS_COUNTRIES.length)]
+        }));
+
+        data.push({
+          id: `${xVal}-${yVal}-${zVal}`,
+          x_dim: xVal,
+          y_dim: yVal,
+          z_dim: zVal,
+          colorType: type,
+          avg_session_minutes: avgSession,
+          user_count: userCount,
+          total_revenue: avgSession * userCount * 0.05,
+          position: [xPos, yPos, zPos],
+          contributing_users: contributingUsers
+        });
       });
     });
   });
 
-  return {
-    data,
-    axes: {
-      x: DAY_TYPES,
-      y: DEVICES,
-      z: CONTENT_TYPES
-    }
-  };
+  return data;
 };

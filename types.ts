@@ -1,48 +1,44 @@
-export type ContentType = 'music' | 'news' | 'search' | 'podcast' | 'video';
 
-export interface UserDetail {
+export type TimeOfDay = 'Morning' | 'Afternoon' | 'Evening';
+export type DeviceType = 'Mobile' | 'Desktop' | 'Tablet';
+export type ContentType = 'Music' | 'Video' | 'News' | 'Podcast' | 'Search';
+
+// For the Z-axis structure, we select 3 main types to form the grid
+export type AxisContentType = 'Music' | 'Video' | 'News'; 
+
+export interface UserActivity {
   id: string;
-  minutes: number;
-  binge: boolean;
   hour: number;
+  minutes: number;
   recommended: boolean;
   completed: boolean;
+  binge: boolean;
+  country: string;
 }
 
 export interface DataPoint {
   id: string;
-  // Dimensions
-  content_type: ContentType;
-  day_type: string;     // Dimension X
-  device: string;       // Dimension Y
+  // Dimensions (Coordinates)
+  x_dim: TimeOfDay;
+  y_dim: DeviceType;
+  z_dim: AxisContentType;
+  
+  // Visual Properties
+  colorType: ContentType; // Actual content type for coloring
   
   // Metrics
-  avg_session_minutes: number; // Primary Metric
-  total_session_minutes: number;
-  user_count: number;
-  binge_rate: number;
-  completion_rate: number;
-  recommendation_rate: number;
+  avg_session_minutes: number; // Controls Scale
+  user_count: number;          // Controls Opacity
+  total_revenue: number;
   
-  // Drill down data
-  contributing_users: UserDetail[];
+  // 3D Position [-1, 0, 1]
+  position: [number, number, number];
 
-  coordinates: [number, number, number]; // Calculated 3D position
-}
-
-export interface AxisConfig {
-  x: string[];
-  y: string[];
-  z: ContentType[];
+  // Raw Data for Grid View
+  contributing_users: UserActivity[];
 }
 
 export interface CubeState {
-  hoveredCellId: string | null;
-  selectedCellId: string | null;
-}
-
-export interface TooltipData {
-  x: number;
-  y: number;
-  data: DataPoint | null;
+  hoveredCell: DataPoint | null;
+  selectedCell: DataPoint | null;
 }
